@@ -34,7 +34,7 @@ public class CommandLineAppTest {
         jedis.set("className", "GodLevelClass");
         jedis.set("teacherCount", "4");
         jedis.set("studentCount", "7");
-        //jedis.lpush("students", "Arvin", "Bob", "Cindy", "David", "Eric", "Frank", "Grace");    //TODO: Jedis lpush方法明明是变长的参数却没法用？
+        //jedis.lpush("students", "Arvin", "Bob", "Cindy", "David", "Eric", "Frank", "Grace");    //Jedis lpush方法明明是变长的参数却没法用？因为Redis版本太低
         //jedis.lpush("teachers", "Gauss", "Einstein", "Joseph", "Linus");
         //JedisPro.lpush(jedis, "students", "Arvin", "Bob", "Cindy", "David", "Eric", "Frank", "Grace");
         //JedisPro.lpush(jedis, "teachers","Gauss", "Einstein", "Joseph", "Linus");
@@ -109,7 +109,7 @@ public class CommandLineAppTest {
         }
         assertFalse(jedis.exists("teachTask"));
         //查看key值的存储类型
-        assertEquals("list", jedis.type("teachers"));
+        assertEquals("set", jedis.type("teachers"));
         //随机返回一个key
         System.out.println("random key: " + jedis.randomKey());
         //将key移动到14号数据库
@@ -181,7 +181,7 @@ public class CommandLineAppTest {
 
         JedisPro.lpush(jedis,"teachTask", "math", "physics", "chemistry", "computer science");
         assertEquals(4L, jedis.llen("teachTask").longValue());
-        assertEquals("physics", jedis.lindex("teachTask", 1));
+        assertEquals("chemistry", jedis.lindex("teachTask", 1));
         jedis.linsert("teachTask", BinaryClient.LIST_POSITION.AFTER, jedis.lindex("teachTask", 2L), "math");
         jedis.lrem("teachTask", 1L, "math");    //从左（头）向右删除1个math
         jedis.ltrim("teachTask", 1L, 3L);           //保留1,3之间的元素
@@ -270,4 +270,16 @@ public class CommandLineAppTest {
         Map<String, String> bMap = jedis.hgetAll(arvinGradeKey);
     }
 
+    //HyperLogLog, 基数统计
+    @Test
+    public void GHyperLogLogTest() {
+        System.out.println("Jedis HyperLogLog operations..");
+
+        Long status = jedis.pfadd("HllKey1", "1");
+        jedis.pfadd("HllKey1", "1", "3", "5", "7", "5", "7", "8");
+        jedis.pfadd("HllKey2", "8", "11", "13");
+        assertEquals(5L, jedis.pfcount("HllKey1"));
+        jedis.pfmerge("HllKey3", "HllKey1", "HllKey2");
+        assertEquals(7L, jedis.pfcount("HllKey1"));
+    }
 }
