@@ -11,6 +11,7 @@
   <modules>
     <module>redis-commandline</module>
     <module>redis-springboot</module>
+    <module>redis-cache</module>
   </modules>
 
   <name>redis-model</name>
