@@ -96,7 +96,7 @@ Redis基础知识有道云笔记路径：web后端->web后端分层->数据持�
     可以使用Jedis类也可以使用JedisPool连接。JedisPool是连接池的概念用于并发环境下和其他池的作用一样，复用连接，
     减少不必要的连接创建和销毁的操作。
     
-    - 源码分析JedisPool实现原理（TODO）
+    - 源码分析JedisPool实现原理
     
         JedisPool 依赖于 Apache commons-pool2 中对象池的实现。
         首先研究一下 commons-pool2 的对象池的实现原理。
@@ -111,12 +111,12 @@ Redis基础知识有道云笔记路径：web后端->web后端分层->数据持�
             适用场景：线程、网络连接、数据库连接等。
             
             分析 Commons-pool2 首先从一个简单的Demo开始。参考测试代码 top.kwseeker.tests.pool.CommonPool2Test。
-            ![Common-pool2主要类图](picture/commons-pool2-class.png)
-            GenericObjectPool 是对象池的主体实现，
-            GenericObjectPoolConfig 是对象池配置，
-            BasePooledObjectFactory 是抽象类由用户实现具体方法，用于创建存储于对象池的对象。
-            IdentityWrapper 本质上是PooledObject对象的Hash索引。
-            DefaultPooledObject 池化对象实现，只是添加了一些记录池化操作的属性。
+            ![Common-pool2主要类图](picture/commons-pool2-class.png)   
+            GenericObjectPool 是对象池的主体实现，  
+            GenericObjectPoolConfig 是对象池配置，  
+            BasePooledObjectFactory 是抽象类由用户实现具体方法，用于创建存储于对象池的对象。  
+            IdentityWrapper 本质上是PooledObject对象的Hash索引。  
+            DefaultPooledObject 池化对象实现，只是添加了一些记录池化操作的属性。  
             PooledObjectState 池化对象状态（IDLE：空闲，ALLOCATED：使用中，EVICTION：正在检测泄漏可能被回收，
                 EVICTION_RETURN_TO_HEAD, VALIDATION, VALIDATION_PREALLOCATED, VALIDATION_RETURN_TO_HEAD, 
                 INVALID, ABANDONED, RETURNING）  
@@ -200,27 +200,27 @@ Redis基础知识有道云笔记路径：web后端->web后端分层->数据持�
             private volatile SwallowedExceptionListener swallowedExceptionListener = null;
             ```
             
-            1) 对象池初始化  
+            1）对象池初始化  
                 开启JMX监控；初始化将要池化的对象容器；设置一些配置项；设置并启动泄漏回收器。
             
             2）borrowObject()  
-                2.1) 校验一下池是否开启(初始化后默认开启)；
+                2.1) 校验一下池是否开启(初始化后默认开启)；  
                 2.2) 如果设置了泄漏清理配置，且使能了当从池中借用对象的时候检测泄漏清理的标志，则判断当前空闲对象是否快被用完以及激活数是否快达到池的最大容量，
-                是的化则执行检测回收操作；
+                是的化则执行检测回收操作；  
                 3.3) 从池中取对象，
                      blockWhenExhausted = true, 从idleObjects（LinkedBlockingDeque）中 pollFirst(),取不到就"尝试"创建一个池化对象；
                      如果还是取不到，则阻塞等待直到双端队列中有对象可取或者超时，对于有超时等待的取超时取不到抛异常；
                      取成功后要修改池化对象DefaultPooledObject的状态标志。
                      blockWhenExhausted = false, 没有上面阻塞等待获取的过程，其他都一样。  
-                3.4) 设置一下后续的状态标志。     
+                3.4) 设置一下后续的状态标志。  
         
-            3）returnObject()
-                3.1) 获取对象状态并检查，不是ALLOCATED，抛出异常；
-                3.2) 修改对象状态为RETURNING；
-                3.3) 如果设置了testOnReturn = true，还需要通过validateObject()校验对象的有效性
-                3.4) 修改其他一些状态标志；
+            3）returnObject()  
+                3.1) 获取对象状态并检查，不是ALLOCATED，抛出异常；  
+                3.2) 修改对象状态为RETURNING；  
+                3.3) 如果设置了testOnReturn = true，还需要通过validateObject()校验对象的有效性；  
+                3.4) 修改其他一些状态标志；  
                 3.5) 将对象放回idleObjects队列中（不是allObjects队列），放入头部还是尾部，有lifo决定。
-                     注意对象的取出放回并不是向队列添加或删除，而是设置标示取出或放回的状态。
+                     注意对象的取出放回并不是向队列添加或删除，而是设置标示取出或放回的状态。  
                 
         * JMX（Java Management Extensions， TODO：深入研究使用方法）
         
@@ -242,6 +242,9 @@ Redis基础知识有道云笔记路径：web后端->web后端分层->数据持�
             [开源框架是如何通过JMX来做监控的(一) - JMX简介和Standard MBean](https://www.cnblogs.com/trust-freedom/p/6842332.html)
             
         * JedisPool工作流程  
+            
+            JedisPool相对于GenericObjectPool数据结构没有改变，只是额外封装了些方法而已。
+        
             ```
             final JedisPoolConfig config = new JedisPoolConfig();
             //继承关系
@@ -249,16 +252,21 @@ Redis基础知识有道云笔记路径：web后端->web后端分层->数据持�
                 -> GenericObjectPoolConfig
                     -> BaseObjectPoolConfig
                         -> Cloneable
+            JedisPool 
+                -> Pool (内部有GenericObjectPool成员变量)
+            JedisFactory
+                -> PooledObjectFactory<Jedis>
             ```
-            JedisPoolConfig 继承 GenericObjectPoolConfig，数据结构没有变，只是构造函数初始化了几个配置参数（
-            ），
+            JedisPoolConfig 继承 GenericObjectPoolConfig，数据结构没有变，只是构造函数初始化了几个配置参数;
+            JedisPool继承抽象类Pool，Pool维持了GenericObjectPool类型的成员变量，数据结构也没有拓展；
+            JedisPool只是封装了一些方法。
             
+            JedisPool使用
             ```
-            final JedisPool jedisPool1 = new JedisPool(config, ConnectionSetting.host);
-            
-            Jedis jedisTemp = jedisPool.getResource();
-            
-            jedisTemp.close()
+            final JedisPoolConfig config = new JedisPoolConfig();
+            final JedisPool jedisPool1 = new JedisPool(config, ConnectionSetting.host); //Jedis实例工厂对象的创建封装到JedisPool构造方法中了
+            Jedis jedisTemp = jedisPool.getResource();  //borrowObject()
+            jedisTemp.close()   //returnObject()
             ```
     
 + Redis分布式数据分片（ShardedJedis）
@@ -270,8 +278,59 @@ Redis基础知识有道云笔记路径：web后端->web后端分层->数据持�
     
     - 源码分析Jedis分片算法原理
     
+        以常用的ShardedJedisPool分析，主要是分析ShardedJedis是怎么索引多个分片对应的很多连接实例中的一个的；
         
-    
+        由于ShardedJedisPool本质上是GenericObjectPool，       
+        首先看ShardedJedisPool初始化过程中分片与连接实例初始化流程（即ShardedJedisFactory添加池化对象的流程）
+        ```
+        private void initialize(List<S> shards) {
+            nodes = new TreeMap<Long, S>();
+        
+            //为每个分片创建（160*权重）个虚拟节点，存放在nodes中，实际的连接实例每个分片只有一个是在resources中存储。
+            for (int i = 0; i != shards.size(); ++i) {
+              final S shardInfo = shards.get(i);
+              if (shardInfo.getName() == null) for (int n = 0; n < 160 * shardInfo.getWeight(); n++) {
+                nodes.put(this.algo.hash("SHARD-" + i + "-NODE-" + n), shardInfo);
+              }
+              else for (int n = 0; n < 160 * shardInfo.getWeight(); n++) {
+                nodes.put(this.algo.hash(shardInfo.getName() + "*" + shardInfo.getWeight() + n), shardInfo);
+              }
+              resources.put(shardInfo, shardInfo.createResource());
+            }
+        }
+        ```
+        
+        然后看getResource()，结果发现就是GenericObjectPool的borrowObject(), 结合前面的分析知道只是从池中取或者新建ShardedJedis实例；  
+        但是需要注意一点，最后 jedis.setDataSource(this); 说明所有ShardedJedis内部的dataSource都是指向的同一个ShardedJedis对象池。
+        
+        然后是通过ShardedJedis操作Redis，首先需要根据算法获取一个连接实例，即Jedis实例；
+        ```
+        //通过下面分析可以知道这里是取redis键key通过Hash算法（MURMUR_HASH或指定其他算法）求出的分界点后第一个nodes的Hash键；
+        //然后根据这个键对应的节点名称，再去resource中取真正的Jedis实例。
+        resources.get(getShardInfo(key));
+        
+        public S getShardInfo(byte[] key) {
+            //以key为值通过Hash算法获取临界点，获取tailMap
+            SortedMap<Long, S> tail = nodes.tailMap(algo.hash(key));
+            if (tail.isEmpty()) {
+              return nodes.get(nodes.firstKey());
+            }
+            //tailMap不为空则获取红黑树中第一个Hash键。
+            return tail.get(tail.firstKey());
+        }
+        ```
+        
+        总结：ShardedJedis中有两个成员变量nodes(TreeMap)和resources（LinkedHashMap），nodes用于存储通过MURMUR_HASH算法
+        算出的Hash（键）与分片信息（值）映射，每个分片有160*权重个虚拟节点，操作redis时需要先通过keymd5Holder计算Hash值，然后在
+        虚拟节点中通过这个Hash值获取TailMap第一个Hash值，通过这个Hash值可以获取分片名字，继而可以通过分片名字在resouces中
+        检索到对应的连接实例（Jedis实例）。
+        
+        网上的好多资料说什么哈希环？这个结构从哪来的？Redis的分片结构是红黑树啊，难道是为了好理解简化为了环？
+        
+    - MURMUR_HASH
+        
+        MURMUR_HASH就是一致性哈希算法，具有高性能，低碰撞的特点；广泛应用于Hadoop、Nginx、libmemcached 等开源系统中。
+        
 + Redis集群（JedisCluster）
 
     Redis服务端有多个实例，可能部署在多个服务器多个端口上，且服务之间做好了相互关联，实现了诸如数据分片，主从，监控等功能；
