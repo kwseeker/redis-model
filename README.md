@@ -106,6 +106,8 @@ Redis基础知识有道云笔记路径：web后端->web后端分层->数据持�
             Common-pool2是一个通用的对象池技术实现，可以很方便用来实现自己的对象池，除了Redis，
             其他框架如DBCP也有使用Common-pool2实现自己的对象池。
             
+            Eviction 翻译为驱逐，在这里可能更合适。
+            
             适用场景：线程、网络连接、数据库连接等。
             
             分析 Commons-pool2 首先从一个简单的Demo开始。参考测试代码 top.kwseeker.tests.pool.CommonPool2Test。
@@ -113,7 +115,15 @@ Redis基础知识有道云笔记路径：web后端->web后端分层->数据持�
             GenericObjectPool 是对象池的主体实现，
             GenericObjectPoolConfig 是对象池配置，
             BasePooledObjectFactory 是抽象类由用户实现具体方法，用于创建存储于对象池的对象。
-        
+            IdentityWrapper 本质上是PooledObject对象的Hash索引。
+            DefaultPooledObject 池化对象实现，只是添加了一些记录池化操作的属性。
+            PooledObjectState 池化对象状态（IDLE：空闲，ALLOCATED：使用中，EVICTION：正在检测泄漏可能被回收，
+                EVICTION_RETURN_TO_HEAD, VALIDATION, VALIDATION_PREALLOCATED, VALIDATION_RETURN_TO_HEAD, 
+                INVALID, ABANDONED, RETURNING）  
+            
+            池化对象的状态转换（TODO：这个状态转换是对象池工作流程的剪影）  
+            ![池化对象状态转换图](https://pic4.zhimg.com/80/v2-24ba9681efd32c4d39da6b387478a0d7_hd.jpg)
+            
             GenericObjectPool
             ```
             // 
@@ -189,8 +199,30 @@ Redis基础知识有道云笔记路径：web后端->web后端分层->数据持�
             private final AtomicLong maxBorrowWaitTimeMillis = new AtomicLong(0L);
             private volatile SwallowedExceptionListener swallowedExceptionListener = null;
             ```
-     
-        * JMX（Java Management Extensions）
+            
+            1) 对象池初始化  
+                开启JMX监控；初始化将要池化的对象容器；设置一些配置项；设置并启动泄漏回收器。
+            
+            2）borrowObject()  
+                2.1) 校验一下池是否开启(初始化后默认开启)；
+                2.2) 如果设置了泄漏清理配置，且使能了当从池中借用对象的时候检测泄漏清理的标志，则判断当前空闲对象是否快被用完以及激活数是否快达到池的最大容量，
+                是的化则执行检测回收操作；
+                3.3) 从池中取对象，
+                     blockWhenExhausted = true, 从idleObjects（LinkedBlockingDeque）中 pollFirst(),取不到就"尝试"创建一个池化对象；
+                     如果还是取不到，则阻塞等待直到双端队列中有对象可取或者超时，对于有超时等待的取超时取不到抛异常；
+                     取成功后要修改池化对象DefaultPooledObject的状态标志。
+                     blockWhenExhausted = false, 没有上面阻塞等待获取的过程，其他都一样。  
+                3.4) 设置一下后续的状态标志。     
+        
+            3）returnObject()
+                3.1) 获取对象状态并检查，不是ALLOCATED，抛出异常；
+                3.2) 修改对象状态为RETURNING；
+                3.3) 如果设置了testOnReturn = true，还需要通过validateObject()校验对象的有效性
+                3.4) 修改其他一些状态标志；
+                3.5) 将对象放回idleObjects队列中（不是allObjects队列），放入头部还是尾部，有lifo决定。
+                     注意对象的取出放回并不是向队列添加或删除，而是设置标示取出或放回的状态。
+                
+        * JMX（Java Management Extensions， TODO：深入研究使用方法）
         
             是一个监控管理资源的框架。通过JMX的MBean可以看到JVM中运行的组件的一些属性和操作。
             例如，可以看到Tomcat 8080端口Connector的请求连接池信息，Druid数据库连接池的activeCount连接数以及连接池配置信息，

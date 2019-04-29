@@ -8,6 +8,8 @@ import org.apache.commons.pool2.impl.GenericObjectPoolConfig;
 import org.junit.Test;
 
 import java.io.StringReader;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
@@ -57,7 +59,8 @@ public class CommonPool2Test {
         GenericObjectPoolConfig config = new GenericObjectPoolConfig();
         config.setMaxIdle(6);   //8
         config.setMinIdle(2);   //0
-        config.setMaxWaitMillis(2000);
+        config.setBlockWhenExhausted(true);
+        config.setMaxWaitMillis(3000);
         config.setJmxEnabled(true);     //打开监控
         //创建对象工厂
         PooledObjectFactory<StringBuffer> factory = new StringBufferFactory();
@@ -70,8 +73,53 @@ public class CommonPool2Test {
         abandonedConfig.setRemoveAbandonedTimeout(5);      //设置泄漏检测基准时间，超过这个时间认为对象泄漏
         pool.setAbandonedConfig(abandonedConfig);
 
+        List<Thread> threads = new ArrayList<>();
         for (int i = 0; i < 10; i++) {
-            new Thread(new Task(pool)).start();
+            Thread thread = new Thread(new Task(pool));
+            threads.add(thread);
+            thread.start();
+        }
+
+        Thread monitor = new Thread(new MonitorTask(pool));
+        monitor.start();
+
+        try {
+            for(Thread thread : threads) {
+                thread.join();
+            }
+            monitor.interrupt();
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        }
+    }
+
+    static class MonitorTask implements Runnable {
+        private GenericObjectPool<StringBuffer> pool;
+
+        public MonitorTask(GenericObjectPool<StringBuffer> pool) {
+            this.pool = pool;
+        }
+
+        @Override
+        public void run() {
+            //每200ms打印一次
+            try {
+                while (!Thread.currentThread().isInterrupted()) {
+                    System.out.println(pool.getNumActive() + "\t"
+                            + pool.getNumIdle() + "\t"
+                            + pool.getNumWaiters() + "\t"
+                            + pool.getBorrowedCount() + "\t"
+                            + pool.getCreatedCount() + "\t"
+                            + pool.getDestroyedByBorrowValidationCount() + "\t"
+                            + pool.getDestroyedByEvictorCount() + "\t"
+                            + pool.getDestroyedCount() + "\t"
+                            + pool.getReturnedCount());
+                    Thread.sleep(200);
+                }
+            } catch (InterruptedException e) {
+                //e.printStackTrace();
+                //return;
+            }
         }
     }
 
@@ -91,7 +139,9 @@ public class CommonPool2Test {
                 buffer = pool.borrowObject();
                 buffer.append("Hello world!");
                 System.out.println(buffer.toString());
-                Thread.sleep(count.getAndAdd(1));   // 1、2、3、4 ...
+                int countTmp = count.getAndAdd(1);
+                Thread.sleep(countTmp * 1000);   // 1、2、3、4 ...
+                System.out.println(countTmp);
             } catch (Exception e) {
                 e.printStackTrace();
             } finally {
