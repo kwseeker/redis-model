@@ -25,7 +25,7 @@ public class JedisSharedTest {
         shardInfo1.setPassword(ConnectionSetting.password);
         shardInfos.add(shardInfo1);
         //6378
-        JedisShardInfo shardInfo2 = new JedisShardInfo(ConnectionSetting.host, ConnectionSetting.port2);
+        JedisShardInfo shardInfo2 = new JedisShardInfo(ConnectionSetting.host, ConnectionSetting.port);
         shardInfo2.setPassword(ConnectionSetting.password);
         shardInfos.add(shardInfo2);
     }
