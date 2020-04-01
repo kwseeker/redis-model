@@ -1,0 +1,95 @@
+version: "3"
+
+# 一主两从三哨兵
+# https://hub.docker.com/r/bitnami/redis
+# !!! 这个容器默认不是以root用户启动的,　会出现很多问题，参考下面链接解决：
+# https://docs.bitnami.com/containers/how-to/work-with-non-root-containers/
+services:
+  redis-m:
+    image: bitnami/redis:5.0
+    user: root
+    container_name: redis-m
+    #restart: always
+    ports:
+      - 6380:6379
+    volumes:
+      - /home/lee/docker/redis-sentinel/conf/redis-m.conf:/opt/bitnami/redis/etc/redis.conf
+      - /home/lee/docker/redis-sentinel/redis-m/data:/bitnami/redis/data
+      - /home/lee/docker/redis-sentinel/redis-m/logs:/opt/bitnami/redis/logs
+#    command:
+#      - redis-server /opt/bitnami/redis/etc/redis.conf
+#    privileged: true
+    environment:
+      ALLOW_EMPTY_PASSWORD: "yes"
+
+  redis-s1:
+    image: bitnami/redis:5.0
+    user: root
+    container_name: redis-s1
+    #restart: always
+    ports:
+      - 6381:6379
+    volumes:
+      - /home/lee/docker/redis-sentinel/conf/redis-s1.conf:/opt/bitnami/redis/etc/redis.conf
+      - /home/lee/docker/redis-sentinel/redis-s1/data:/bitnami/redis/data
+      - /home/lee/docker/redis-sentinel/redis-s1/logs:/opt/bitnami/redis/logs
+    depends_on:
+      - redis-m
+#    command:
+#      - redis-server /opt/bitnami/redis/etc/redis.conf
+#    privileged: true
+    environment:
+      ALLOW_EMPTY_PASSWORD: "yes"
+
+  redis-s2:
+    image: bitnami/redis:5.0
+    user: root
+    container_name: redis-s2
+    #restart: always
+    ports:
+      - 6382:6379
+    volumes:
+      - /home/lee/docker/redis-sentinel/conf/redis-s2.conf:/opt/bitnami/redis/etc/redis.conf
+      - /home/lee/docker/redis-sentinel/redis-s2/data:/bitnami/redis/data
+      - /home/lee/docker/redis-sentinel/redis-s2/logs:/opt/bitnami/redis/logs
+    depends_on:
+      - redis-m
+#    command:
+#      - redis-server /opt/bitnami/redis/etc/redis.conf
+#    privileged: true
+    environment:
+      ALLOW_EMPTY_PASSWORD: "yes"
+
+  redis-sentinel1:
+    image: bitnami/redis-sentinel:5.0
+    container_name: redis-sentinel1
+    ports:
+      - '26380:26379'
+    environment:
+      - REDIS_MASTER_HOST=redis-m
+    depends_on:
+      - redis-m
+      - redis-s1
+      - redis-s2
+  redis-sentinel2:
+    image: bitnami/redis-sentinel:5.0
+    container_name: redis-sentinel2
+    ports:
+      - '26381:26379'
+    environment:
+      - REDIS_MASTER_HOST=redis-m
+    depends_on:
+      - redis-m
+      - redis-s1
+      - redis-s2
+  redis-sentinel3:
+    image: bitnami/redis-sentinel:5.0
+    container_name: redis-sentinel3
+    ports:
+      - '26382:26379'
+    environment:
+      - REDIS_MASTER_HOST=redis-m
+    depends_on:
+      - redis-m
+      - redis-s1
+      - redis-s2
