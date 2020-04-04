@@ -13,6 +13,8 @@
     <module>redis-springboot</module>
     <module>redis-cache</module>
       <module>redis-usage</module>
+      <module>redis-theory</module>
+      <module>flasher</module>
   </modules>
 
   <name>redis-model</name>

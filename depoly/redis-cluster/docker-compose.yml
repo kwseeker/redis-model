@@ -1,0 +1,143 @@
+version: "3.3"
+
+# Redis集群模式（三主三从）
+# TODO(没有启动起来，cluster-config-file "nodes.conf" Can't open nodes.conf in order to acquire a lock: Permission denied )
+# TODO(可能这个镜像bitnami/redis:5.0安全性设置的太高了，出了很多问题)
+# !!! 这个容器默认不是以root用户启动的,　会出现很多问题，参考下面链接解决：
+# https://docs.bitnami.com/containers/how-to/work-with-non-root-containers/
+services:
+  redis-cluster-n1:
+    image: bitnami/redis:5.0
+    user: root                        # 以root用户启动
+    container_name: redis-cluster-n1
+    # 设置Dockerfile中的任何RUN，CMD，ENTRPOINT，COPY和ADD指令的工作目录
+#    working_dir: /conf
+    ports:
+      - 6390:6379
+      - 16392:16391
+    volumes:
+      - /home/lee/docker/redis-cluster/conf/rc-n1.conf:/opt/bitnami/redis/etc/redis.conf
+      - /home/lee/docker/redis-cluster/rc-n1/data:/bitnami/redis/data
+      - /home/lee/docker/redis-cluster/rc-n1/logs:/opt/bitnami/redis/logs
+    environment:
+      ALLOW_EMPTY_PASSWORD: "yes"
+    privileged: true      # 拥有容器内命令执行的权限
+#    command:
+#      - redis-server /conf/rc-n1.conf
+    networks:
+      redis-cluster-net:
+        ipv4_address: 172.25.0.2
+
+  redis-cluster-n2:
+    image: bitnami/redis:5.0
+    user: root
+    container_name: redis-cluster-n2
+#    working_dir: /conf
+    ports:
+      - 6391:6379
+      - 16393:16391
+    volumes:
+      - /home/lee/docker/redis-cluster/conf/rc-n2.conf:/opt/bitnami/redis/etc/redis.conf
+      - /home/lee/docker/redis-cluster/rc-n2/data:/bitnami/redis/data
+      - /home/lee/docker/redis-cluster/rc-n2/logs:/opt/bitnami/redis/logs
+    environment:
+      ALLOW_EMPTY_PASSWORD: "yes"
+    privileged: true      # 拥有容器内命令执行的权限
+#    command:
+#      - redis-server /conf/rc-n2.conf
+    networks:
+      redis-cluster-net:
+        ipv4_address: 172.25.0.3
+
+  redis-cluster-n3:
+    image: bitnami/redis:5.0
+    user: root
+    container_name: redis-cluster-n3
+#    working_dir: /conf
+    ports:
+      - 6392:6379
+      - 16394:16391
+    volumes:
+      - /home/lee/docker/redis-cluster/conf/rc-n3.conf:/opt/bitnami/redis/etc/redis.conf
+      - /home/lee/docker/redis-cluster/rc-n3/data:/bitnami/redis/data
+      - /home/lee/docker/redis-cluster/rc-n3/logs:/opt/bitnami/redis/logs
+    environment:
+      ALLOW_EMPTY_PASSWORD: "yes"
+    privileged: true      # 拥有容器内命令执行的权限
+#    command:
+#      - redis-server /conf/rc-n3.conf
+    networks:
+      redis-cluster-net:
+        ipv4_address: 172.25.0.4
+
+  redis-cluster-n4:
+    image: bitnami/redis:5.0
+    user: root
+    container_name: redis-cluster-n4
+#    working_dir: /conf
+    ports:
+      - 6393:6379
+      - 16395:16391
+    volumes:
+      - /home/lee/docker/redis-cluster/conf/rc-n4.conf:/opt/bitnami/redis/etc/redis.conf
+      - /home/lee/docker/redis-cluster/rc-n4/data:/bitnami/redis/data
+      - /home/lee/docker/redis-cluster/rc-n4/logs:/opt/bitnami/redis/logs
+    environment:
+      ALLOW_EMPTY_PASSWORD: "yes"
+    privileged: true      # 拥有容器内命令执行的权限
+#    command:
+#      - redis-server /conf/rc-n4.conf
+    networks:
+      redis-cluster-net:
+        ipv4_address: 172.25.0.5
+
+  redis-cluster-n5:
+    image: bitnami/redis:5.0
+    user: root
+    container_name: redis-cluster-n5
+#    working_dir: /conf
+    ports:
+      - 6394:6379
+      - 16396:16391
+    volumes:
+      - /home/lee/docker/redis-cluster/conf/rc-n5.conf:/opt/bitnami/redis/etc/redis.conf
+      - /home/lee/docker/redis-cluster/rc-n5/data:/bitnami/redis/data
+      - /home/lee/docker/redis-cluster/rc-n5/logs:/opt/bitnami/redis/logs
+    environment:
+      ALLOW_EMPTY_PASSWORD: "yes"
+    privileged: true      # 拥有容器内命令执行的权限
+#    command:
+#      - redis-server /conf/rc-n5.conf
+    networks:
+      redis-cluster-net:
+        ipv4_address: 172.25.0.6
+
+  redis-cluster-n6:
+    image: bitnami/redis:5.0
+    user: root
+    container_name: redis-cluster-n6
+#    working_dir: /conf
+    ports:
+      - 6395:6379
+      - 16397:16391
+    volumes:
+      - /home/lee/docker/redis-cluster/conf/rc-n6.conf:/opt/bitnami/redis/etc/redis.conf
+      - /home/lee/docker/redis-cluster/rc-n6/data:/bitnami/redis/data
+      - /home/lee/docker/redis-cluster/rc-n6/logs:/opt/bitnami/redis/logs
+    environment:
+      ALLOW_EMPTY_PASSWORD: "yes"
+    privileged: true      # 拥有容器内命令执行的权限
+#    command:
+#      - redis-server /conf/rc-n6.conf
+    networks:
+      redis-cluster-net:
+        ipv4_address: 172.25.0.7
+
+networks:
+  redis-cluster-net:
+    driver: bridge # 创建一个docker 的桥接网络
+    ipam:
+      driver: default
+      config:
+        -
+          subnet: 172.25.0.0/16

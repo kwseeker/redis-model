@@ -7,7 +7,7 @@
 推荐资料:  
 《Redis in action / Redis实战》：列举了很多实际应用场景,结合自己项目中需求可能汲取到一些实现建议，适合根据这本书里面的应用场景实操；  
 《Redis设计与实现》: 从实现原理角度分析Redis设计思想。   
-《Redis深度历险 核心原理与应用实践》：列举了比较重要的部分的应用和原理。
+《Redis深度历险 核心原理与应用实践》：列举了比较重要的部分的应用和原理。  
 《官方文档 https://redis.io　、http://www.redis.cn》：其他的书感觉不如读官方文档，当作手册使用。  
 [Redis源码](https://github.com/antirez/redis)  
 [如何阅读 Redis 源码](http://blog.huangz.me/diary/2014/how-to-read-redis-source-code.html)  
@@ -52,6 +52,18 @@ value的存储(典型的存储结构，但是不仅仅限于这几种，详细�
 hset kwseeker name lee age 26 
 ```
 **Set类型**：存储类似Java HashSet（key插入时要判断是否重复，value是一个固定的Object对象）,每个key是SDS, value是null。  
+如果一个集合中只包含整数值元素，并且这个集合的元素不多时,Redis就会使用整数集合(intset)作为该集合的底层实现。
+```
+typedef struct intset{
+  //编码方式
+  uint32_t encoding;
+  //集合包含的元素数量
+  uint32_t length;
+  //保存元素的数组
+  int8_t contents[];
+}intset;
+```
+
 **ZSet类型**：存储基于hash字典＋跳表（既是hash字典又是跳表），hash字典的key是SDS，一方面保证了内部 value 的唯一性,另一方面它可以给每个 value 赋予一个 score ,代表这个 value 的排序权重。
 ```java
 struct zsl {
@@ -190,15 +202,40 @@ noeviction        //不删除，达到最大内存限制直接返回错误
 
 ##### 排序
 
-#### 事务的实现
+#### 事务的实现（不推荐用无法回滚）
+
+Redis 的事务是通过 MULTI（事务开启，之后的命令会进入队列） 、 EXEC（执行队列中命令） 、 
+DISCARD（清除队列中所有命令,以及MULTI） 和 WATCH（设置监控，监控目标key是否改变，UNWATCH清除所有监控） 这四个命令来完成的；  
+每个命令都是原子性的，且Redis是单进程单线程的(执行事务时不会出现竞争，如果是集群呢多个Master?(同样不存在竞争因为数据在Master间分片存储))。
+
+客户端１：
+```sh
+localhost:6381> multi
+OK
+localhost:6381> set s1 111
+QUEUED
+localhost:6381> hset kwseeker name lee
+QUEUED
+localhost:6381> hset kwseeker job programmer
+QUEUED
+localhost:6381> exec
+1) OK
+2) (integer) 1
+3) (integer) 1
+```
+客户端２：
+```
+localhost:6382> watch s1
+OK
+```
+
+EXEC返回一个list,存储事务中每个子命令的执行返回，如果事务失败则返回空的list(注意不是返回null)。
+
+通过Redis事务可以实现Redis乐观锁（WATCH监听版本号）。
 
 ### 作为一个高速缓存如何提升访问效率
 
 #### 事件驱动模型
-
-### 消息中间件怎么设计
-
-#### 消息的发布与订阅
 
 ### 作为服务总也绕不开的数据安全和高可用如何保证
 
@@ -231,6 +268,23 @@ redis> bgsave
 ##### AOF
 
 存储命令而不是数据，和MySQL binlog类似。
+分为两个步骤：   
+1）write:将命令写入AOF文件(在内存中)（这个过程其实不怎么耗时，因为是内存读写）;  
+2）save:将AOF文件保存到磁盘（这个过程比较耗时，因为涉及磁盘IO，后面的三种策略也主要是针对这个阶段做优化）。  
+
++ AOF_FSYNC_NO
+
+  写入和保存都由主进程执行,但是保存操作只会在AOF 关闭或 Redis 关闭时执行，或者由操作系统触发（即save操作很少）。  
+  但是不安全。
+
++ AOF_FSYNC_EVERYSEC
+
+  写入操作由主进程执行。保存操作由子线程执行,不阻塞主进程,但保存操作完成的快慢会影响写入操作的阻塞时长（即保存会阻塞写入）。  
+  平衡性能和安全性(最多丢失两秒的数据)。
+
++ AOF_FSYNC_ALWAYS
+
+  写入和保存都由主进程执行，写完立即保存，存在大量磁盘IO,性能低。
 
 开启AOF持久化,redis.conf中配置
 ```
@@ -241,6 +295,14 @@ appendsync always   //每次有新命令都会追加到aof文件中,不会丢失
 appendsync everysec //每秒向aof文件中存储一下这秒中的命令，折中性能和数据安全,最多可能丢失１s的数据
 appendsync no
 ```
+
+AOF重写：  
+
+当AOF文件体积超过配置中设定值或者超过上次重写后大小的一倍，则触发后台重写，
+只保留最小命令集合。
+
+AOF重写使用子进程，子进程保存有AOF数据副本，同时主进程会在子进程启动后，同时将命令写入到重写缓存，
+子进程重写完成后替换原AOF文件，并将重写缓存中的命令追加到新的AOF文件。
 
 ##### RDB与AOF对比
 
@@ -259,20 +321,31 @@ AOF:
 
 ##### 集群实现方案
 
-+ **主从模式**
++ **主从模式（淘汰）**
 
   Master写，Slave读；Master宕机，Slave无法切为Master导致不可用。需要手动将Slave切换为Master。
 
-  redis.conf
-  ```
-  # 主从配置，将当前实例作为<masterip>:<masterport>的从机
-  replicaof <masterip> <masterport>
-  ```
-  或者命令行
-  ```
-  ./redis-server ../redis7000.conf --slaveof 192.168.0.31 6379 &
-  ```
-  通过`info replication`可以查看主从状态。
+  + 设置
+  
+    redis.conf
+    ```
+    # 主从配置，将当前实例作为<masterip>:<masterport>的从机
+    replicaof <masterip> <masterport>
+    ```
+    或者命令行
+    ```
+    ./redis-server ../redis7000.conf --slaveof 192.168.0.31 6379 &
+    ```
+    通过`info replication`可以查看主从状态。
+      
+  + 主从数据一致性与数据同步
+  
+    分为全量同步和增量同步。
+    
+    增量同步就是Master将接收到的命令转发给Slave一份；
+  
+    全量同步：同步快照阶段、同步写缓冲阶段、同步增量阶段（即上面的增量同步）。
+    全量同步和前面说的AOF重写差不多，先拷个副本，再拷下处理副本期间缓冲的命令。
 
 + **哨兵模式**
 
@@ -282,15 +355,93 @@ AOF:
 
   哨兵其实是代理，有哨兵时，客户端不再直接连接Redis节点，而是通过哨兵间接连接Redis节点。哨兵与Redis节点有心跳连接用于监控节点健康状态。
 
-
-
+  故障迁移（raft算法）：  
+  １）心跳失败（主观下线－>客观下线－>发起故障迁移）  
+  ２）哨兵们选举
+  
+  哨兵模式有个缺点：
+  当Master挂掉，哨兵选举新Master过程中无法正常处理数据，可能导致数据不一致。
 
 + **集群模式**
 
+  Redis3.0之前并不支持服务端集群，当时为了部署集群，对数据进行分片，有两种解决方案：  
+  １）由客户端实现分片逻辑（类比MySQL分库分表Sharding-JDBC）；  
+  ２）添加proxy代理层（中间件，类比MySQL分库分表MyCat）,比如：Codis、twemproxy。  
+  
+  但是3.0之后Redis默认支持集群之后就不再使用上面两种方案了。  
+  操作API的话，直接选用JedisCluster那套API。
+  
+  > JedisCluster不支持不同槽的多个key的批量操作；
+  > 集群模式没有数据库的概念，不能select和flushdb;
+  > key是分区最小粒度，一个key的数据不能映射到不同的节点。
+
+  ShardedJedis 那套API应该就是基于客户端实现分片的。采用一致性Hash算法做数据分片。
+
+  Redis3.0之后的集群模式，所有主节点互联、主节点和各自的从节点相连。主从间保证高可用，主主间保证高拓展。
+  采用Hash槽（crc16哈希取余）做数据分片。最多支持拓展16384个节点[一个节点一个槽]。
+  
+  > Redis 集群中内置了 16384个哈希槽,当需要在 Redis 集群中放置一个 key-value 时,redis 先对
+  > key 使用 crc16 算法算出一个结果,然后把结果对 16384 求余数,这样每个 key 都会对应一个编号在
+  > 0-16383 之间的哈希槽,redis 会根据节点数量大致均等的将哈希槽映射到不同的节点
+
+  集群节点间采用Gossip协议进行通信（TODO）,维持心跳与节点信息同步。
+
+  集群容错：其实和哨兵模式类似，和其他框架的模式也都类似（都基于差不多的理论）。
+  
+  只不过这里是所有的Master进行投票，决定某个异常的Master是否down了；以及应该选择
+  down掉的Master的哪个Slave升级为Master。
+  
+  什么情况下集群会挂掉？  
+  1）半数的主挂了,不能投票生效,则集群会挂掉；  
+  2）某个主和它的所有从都挂了，slot槽不连续，则集群会挂掉。  
+  
+  ```sh
+  redis-cli -h 127.0.0.1 -p 7001 -c   # -c 表示是以redis集群方式进行连接
+  redis> cluster info                   # 查看集群状态
+  redis> cluster nodes                  # 查看集群节点
+  redis-cli --cluster add-node 127.0.0.1:7007 127.0.0.1:7001  # 添加新Master结点到127.0.0.1:7001所在集群
+  redis-cli --cluster reshard 127.0.0.1:7007    # 为新节点分配hash槽
+  redis-cli --cluster add-node 127.0.0.1:7008 127.0.0.1:7007 --cluster-slave 
+    --cluster-master-id 50b073163bc4058e89d285dc5dfc42a0d1a222f2
+  # 删除节点
+  redis-cli --cluster del-node 127.0.0.1:7008 41592e62b83a8455f07f7797f1d5c071cffedb50
+  ```
+  
 ##### 数据一致性问题
 
 ##### 主服务器宕机重新选举、故障转移
 
-### 其他
+### 其他功能
+
+#### 消息的发布与订阅
 
 #### 使用Lua脚本拓展功能
+
+### Redis监控、问题分析与优化
+
+#### 监控方案（监控客户端操作、集群性能）
+
+### 生产应用中常见问题
+
+#### 缓存击穿与缓存雪崩
+
+缓存击穿：故意对Redis不存在的key进行高并发访问,导致数据库压力瞬间增大。  
+解决方案：  
+1）对查询结果为空的key也进行缓存，value为空值。后面如果再次使用此key,直接返回空值。
+  但是这种方案无法应对key每次都不一样的恶意请求,而且会浪费大量内存空间；  
+2）识别恶意请求，加入黑名单，拒绝此IP请求的访问；  
+3）做限流处理（有可能在业务高峰期把正常的请求给限制了）;  
+3）布隆过滤器。  
+  布隆过滤器其实是用于做去重的。
+
+缓存雪崩：当缓存服务器重启或者大量缓存集中在某一个时间段失效,这样在失效的时候,也会给后端系统(比如DB)带来很大压力。  
+解决方案：  
+1）将key的失效期分散开；  
+2）添加二级缓存（比如Redis和数据库中间再设置一层缓存）；  
+3）限流处理；  
+4）搭建高可用集群，提升系统负载能力。  
+
+#### 缓存与数据库数据一致性问题
+
+如果只要求最终一致性，可以控制好缓存和数据库数据更新的顺序；  
+如果要求强一致性，需要借助Cannal等工具实现数据同步。

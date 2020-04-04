@@ -19,7 +19,17 @@
         <module>counter</module>
         <module>pubsub</module>
         <module>messagequeue</module>
+        <module>optimisticlock</module>
+        <module>lua</module>
     </modules>
 
-
+    <dependencies>
+        <dependency>
+            <groupId>redis.clients</groupId>
+            <artifactId>jedis</artifactId>
+            <version>2.9.0</version>
+            <type>jar</type>
+            <scope>compile</scope>
+        </dependency>
+    </dependencies>
 </project>
