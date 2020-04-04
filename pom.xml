@@ -10,11 +10,10 @@
   <version>1.0-SNAPSHOT</version>
   <modules>
     <module>redis-commandline</module>
-    <module>redis-springboot</module>
-    <module>redis-cache</module>
-      <module>redis-usage</module>
-      <module>redis-theory</module>
-      <module>flasher</module>
+    <module>redis-usage</module>
+    <module>redis-theory</module>
+    <module>flasher</module>
+    <module>redis-spring</module>
   </modules>
 
   <name>redis-model</name>
