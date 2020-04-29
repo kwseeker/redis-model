@@ -14,6 +14,7 @@
     <module>redis-theory</module>
     <module>flasher</module>
     <module>redis-spring</module>
+      <module>redis-bloomfilter</module>
   </modules>
 
   <name>redis-model</name>
