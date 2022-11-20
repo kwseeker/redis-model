@@ -22,4 +22,6 @@ int main() {
 
     unsigned char flags = sds_str->buf[-1];
     printf("flags: %d\n", flags);
+
+    printf("ptr len : %lu\n", sizeof(void *));
 }

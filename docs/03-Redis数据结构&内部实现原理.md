@@ -26,53 +26,11 @@
 
 #### Stream （5.0之后新增）
 
-### Redis内部数据结构
-
-```C
-#define OBJ_ENCODING_RAW 0     /* Raw representation */
-#define OBJ_ENCODING_INT 1     /* Encoded as integer */
-#define OBJ_ENCODING_HT 2      /* Encoded as hash table */
-#define OBJ_ENCODING_ZIPMAP 3  /* Encoded as zipmap */
-#define OBJ_ENCODING_LINKEDLIST 4 /* No longer used: old list encoding. */
-#define OBJ_ENCODING_ZIPLIST 5 /* Encoded as ziplist */
-#define OBJ_ENCODING_INTSET 6  /* Encoded as intset */
-#define OBJ_ENCODING_SKIPLIST 7  /* Encoded as skiplist */
-#define OBJ_ENCODING_EMBSTR 8  /* Embedded sds string encoding */
-#define OBJ_ENCODING_QUICKLIST 9 /* Encoded as linked list of ziplists */
-#define OBJ_ENCODING_STREAM 10 /* Encoded as a radix tree of listpacks */
-```
-
-#### RAW
-
-
-
-#### INT
-
-#### HT
-
-### 数据类型与内部数据结构对应关系
-
 
 
 ### **Redis重要结构体**
 
-#### robj 
-
-key、value 等数据的表示类型。
-
-```C
-typedef struct redisObject {
-    unsigned type:4;	   //数据类型（占unsigned int 中4位），如：OBJ_STRING...
-    unsigned encoding:4;   //编码类型（占unsigned int 中4位），就是内部存储结构，如RAW、INT...
-    unsigned lru:LRU_BITS; /* LRU time (relative to global lru_clock) or
-                            * LFU data (least significant 8 bits frequency
-                            * and most significant 16 bits access time). */
-    int refcount; 		   //
-    void *ptr;			   //键值对，值的指针，如果是String类型，这里就是sds
-} robj;
-```
-
-> struct 中 unsigned type:4; 是位操作。
+![](picture/redis-inner-ds-REDIS结构体.png)
 
 #### sds （Simple Dynamic String，5种类型）
 
@@ -151,6 +109,83 @@ unsigned char flags = s[-1];
 
 
 
+### Redis value 数据结构
+
+```C
+#define OBJ_ENCODING_RAW 0     /* Raw representation */
+#define OBJ_ENCODING_INT 1     /* Encoded as integer */
+#define OBJ_ENCODING_HT 2      /* Encoded as hash table */
+#define OBJ_ENCODING_ZIPMAP 3  /* Encoded as zipmap */
+#define OBJ_ENCODING_LINKEDLIST 4 /* No longer used: old list encoding. */
+#define OBJ_ENCODING_ZIPLIST 5 /* Encoded as ziplist */
+#define OBJ_ENCODING_INTSET 6  /* Encoded as intset */
+#define OBJ_ENCODING_SKIPLIST 7  /* Encoded as skiplist */
+#define OBJ_ENCODING_EMBSTR 8  /* Embedded sds string encoding */
+#define OBJ_ENCODING_QUICKLIST 9 /* Encoded as linked list of ziplists */
+#define OBJ_ENCODING_STREAM 10 /* Encoded as a radix tree of listpacks */
+```
+
+所有内部数据结构，最外层都是个redisObject。
+
+#### INT
+
+redisObject (详细介绍看下文) ptr 指针不存储地址，直接存储 value 转换后的数字；
+
+![](picture/obj_encoding_int.png)
+
+0-10000 的值redis内部预先存储了，是可以共享使用的；
+
+比如`set val 100` 这个100的存储结构是
+
+```C
+// 0-10000 redis预先设置好了，如存100
+type = {unsigned int} 0
+encoding = {unsigned int} 1
+lru = {unsigned int} 7990932
+refcount = {int} 2147483647
+ptr = {void *} 0x64 
+// 又比如100000
+type = {unsigned int} 0
+encoding = {unsigned int} 1
+lru = {unsigned int} 8019551
+refcount = {int} 1
+ptr = {void *} 0x186a0 
+```
+
+#### EMBSTR
+
+![](picture/obj_encoding_embstr.png)
+
+> 为何 EMBSTR 只能存储长度<=44的字符串？
+>
+> 内存IO每次访问数据的最小单位是缓存行（64byte），如果字符串长度足够小，完全可以只用一次IO完成 value 的访问，需要将redisObject 和 sdshdr8 存储到连续的内存，buf外其他字段占用总空间大小是 4+4+8+1+1+1=19, 留给buf 64-19=45bytes, 由于C语言数组存储字符串还要再最后存'\0'标识字符串结尾，占用1byte，最终最多只能存储长度为44的字符串。
+
+#### RAW
+
+![](picture/obj_encoding_raw.png)
+
+相对于EMBSTR, RAW编码类型 redisObject 和 sds 存储在不连续的内存空间。
+
+#### HT
+
+
+
+### 数据类型与内部数据结构对应关系
+
+| 外部数据类型 | 内部存储结构       |
+| ------------ | ------------------ |
+| String       | INT / EMBSTR / RAW |
+| List         |                    |
+| Set          |                    |
+| ZSet         |                    |
+| Hash         |                    |
+| Bitmap       |                    |
+| GenHash      |                    |
+| HyperLogLog  |                    |
+| Stream       |                    |
+
+
+
 ## String
 
 以`set`命令为例。
@@ -181,10 +216,12 @@ SET key value [NX] [XX] [KEEPTTL] [GET] [EX <seconds>] [PX <milliseconds>] [EXAT
 
    代码不直观，所以根据源码逻辑画了个图 （流程图：redis-ds-process.drawio）
 
+   ![](picture/redis-ds-process-set-string.png)
    
    
-   hash算法：
 
+   hash算法 与 value索引：
+   
    ```C
    uint64_t siphash(const uint8_t *in, const size_t inlen, const uint8_t *k) {
    	...
