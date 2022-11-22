@@ -127,6 +127,8 @@ unsigned char flags = s[-1];
 
 所有内部数据结构，最外层都是个redisObject。
 
+查看对象内部编码数据结构类型：`object encoding key`。
+
 #### INT
 
 redisObject (详细介绍看下文) ptr 指针不存储地址，直接存储 value 转换后的数字；
@@ -194,7 +196,7 @@ ptr = {void *} 0x186a0
 SET key value [NX] [XX] [KEEPTTL] [GET] [EX <seconds>] [PX <milliseconds>] [EXAT <seconds-timestamp>][PXAT <milliseconds-timestamp>]
 ```
 
-### 源码set处理流程
+### 源码 set 处理流程
 
 1. 调用栈
 
@@ -243,6 +245,42 @@ SET key value [NX] [XX] [KEEPTTL] [GET] [EX <seconds>] [PX <milliseconds>] [EXAT
    ```
    
    
+
+## List
+
+以`rpush`命令为例：
+
+### 源码 rpush 处理流程
+
+```shell
+ RPUSH <key> <element> [<element> ...]
+```
+
+命令处理函数：
+
+```C
+void rpushCommand(client *c) 
+```
+
+
+
+## Hash
+
+
+
+## Set
+
+
+
+## ZSet
+
+
+
+## Bitmap
+
+
+
+
 
 
 
