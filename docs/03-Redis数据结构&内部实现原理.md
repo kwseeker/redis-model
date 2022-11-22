@@ -168,23 +168,45 @@ ptr = {void *} 0x186a0
 
 相对于EMBSTR, RAW编码类型 redisObject 和 sds 存储在不连续的内存空间。
 
-#### HT
+#### QUICKLIST
 
+![](picture/obj_encoding_quicklist.png)
 
+#### ZIPLIST
+
+![](picture/obj_encoding_ziplist.png)
+
+**ziplistNew**() 初始创建了11 bytes长的字符串，其中
+
+zlbytes: 前4byte用于存储ZIPLIST总长度（初始是11bytes），
+
+zltail: 紧接4byte存储最后一个数据项entry在ziplist中的偏移量（为了支持反向索引），
+
+zlen: 再紧接着2byte存储ZIPLIST数据项entry长度，
+
+zlend: 最后1byte存储255这个结尾标志；
+
+HEADER（前10bytes） 和 END(最后1bytes) 之间存储数据。
+
+prerawlen: 前一entry占用的数据长度（bytes，用于反向索引）；
+
+len: 当前 entry 占用的数据长度以及数据类型。
+
+> 数据存储紧凑，能转成整数的字符串会转成适当长度的整数存储。
 
 ### 数据类型与内部数据结构对应关系
 
-| 外部数据类型 | 内部存储结构       |
-| ------------ | ------------------ |
-| String       | INT / EMBSTR / RAW |
-| List         |                    |
-| Set          |                    |
-| ZSet         |                    |
-| Hash         |                    |
-| Bitmap       |                    |
-| GenHash      |                    |
-| HyperLogLog  |                    |
-| Stream       |                    |
+| 外部数据类型 | 内部存储结构        |
+| ------------ | ------------------- |
+| String       | INT / EMBSTR / RAW  |
+| List         | QUICKLIST + ZIPLIST |
+| Set          |                     |
+| ZSet         |                     |
+| Hash         | ZIPLIST / HT        |
+| Bitmap       |                     |
+| GenHash      |                     |
+| HyperLogLog  |                     |
+| Stream       |                     |
 
 
 
@@ -220,10 +242,8 @@ SET key value [NX] [XX] [KEEPTTL] [GET] [EX <seconds>] [PX <milliseconds>] [EXAT
 
    ![](picture/redis-ds-process-set-string.png)
    
-   
-
    hash算法 与 value索引：
-   
+
    ```C
    uint64_t siphash(const uint8_t *in, const size_t inlen, const uint8_t *k) {
    	...
@@ -262,7 +282,7 @@ SET key value [NX] [XX] [KEEPTTL] [GET] [EX <seconds>] [PX <milliseconds>] [EXAT
 void rpushCommand(client *c) 
 ```
 
-
+![](picture/redis-list-process-rpush.png)
 
 ## Hash
 

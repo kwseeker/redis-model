@@ -1,5 +1,5 @@
-#ifndef REDIS_SRC_TEST_H
-#define REDIS_SRC_TEST_H
+#ifndef REDIS_SRC_SDS_TEST_H
+#define REDIS_SRC_SDS_TEST_H
 
 struct __attribute__ ((__packed__)) sdshdr8 {
     unsigned char len; /* used */
@@ -18,4 +18,4 @@ struct __attribute__ ((__packed__)) empty_array {
     char buf[0];
 };
 
-#endif //REDIS_SRC_TEST_H
+#endif //REDIS_SRC_SDS_TEST_H

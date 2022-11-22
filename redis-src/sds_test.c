@@ -1,4 +1,4 @@
-#include "test.h"
+#include "sds_test.h"
 #include <stdio.h>
 #include <malloc.h>
 #include <string.h>
@@ -24,4 +24,7 @@ int main() {
     printf("flags: %d\n", flags);
 
     printf("ptr len : %lu\n", sizeof(void *));
+
+    //如果有指向buf的（void*）指针,可以通过下面方法在调试时看结果体的值
+    //(struct sdshdr8 *)(sds_str->buf-3)
 }

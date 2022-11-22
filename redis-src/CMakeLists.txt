@@ -6,5 +6,5 @@ set(CMAKE_C_STANDARD 11)
 include_directories(.)
 
 add_executable(redis-src
-        test.c
-        test.h)
+        sds_test.c
+        sds_test.h)
