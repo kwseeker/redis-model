@@ -194,19 +194,33 @@ len: 当前 entry 占用的数据长度以及数据类型。
 
 > 数据存储紧凑，能转成整数的字符串会转成适当长度的整数存储。
 
+#### HT
+
+#### ZIPMAP
+
+#### LINKEDLIST
+
+#### INTSET
+
+#### SKIPLIST
+
+#### STREAM
+
+
+
 ### 数据类型与内部数据结构对应关系
 
-| 外部数据类型 | 内部存储结构        |
-| ------------ | ------------------- |
-| String       | INT / EMBSTR / RAW  |
-| List         | QUICKLIST + ZIPLIST |
-| Set          |                     |
-| ZSet         |                     |
-| Hash         | ZIPLIST / HT        |
-| Bitmap       |                     |
-| GenHash      |                     |
-| HyperLogLog  |                     |
-| Stream       |                     |
+| 外部数据类型 | 内部存储结构               |
+| ------------ | -------------------------- |
+| String       | INT / EMBSTR / RAW         |
+| List         | QUICKLIST + ZIPLIST        |
+| Set          | INTSET / HT                |
+| ZSet         |                            |
+| Hash         | ZIPLIST / HT (struct dict) |
+| Bitmap       |                            |
+| GenHash      |                            |
+| HyperLogLog  |                            |
+| Stream       |                            |
 
 
 
@@ -218,7 +232,7 @@ len: 当前 entry 占用的数据长度以及数据类型。
 SET key value [NX] [XX] [KEEPTTL] [GET] [EX <seconds>] [PX <milliseconds>] [EXAT <seconds-timestamp>][PXAT <milliseconds-timestamp>]
 ```
 
-### 源码 set 处理流程
+源码处理流程:
 
 1. 调用栈
 
@@ -270,8 +284,6 @@ SET key value [NX] [XX] [KEEPTTL] [GET] [EX <seconds>] [PX <milliseconds>] [EXAT
 
 以`rpush`命令为例：
 
-### 源码 rpush 处理流程
-
 ```shell
  RPUSH <key> <element> [<element> ...]
 ```
@@ -282,17 +294,154 @@ SET key value [NX] [XX] [KEEPTTL] [GET] [EX <seconds>] [PX <milliseconds>] [EXAT
 void rpushCommand(client *c) 
 ```
 
+源码 rpush 处理流程:
+
 ![](picture/redis-list-process-rpush.png)
 
 ## Hash
 
+以`hset`命令为例，命令处理函数：
 
+```C
+void hsetCommand(client *c)
+```
+
+处理流程和前面的都一样，不想画图了：
+
+1. 先查最外层hash表key是否存在，存在则返回，不存在则创建Hash类value对象，然后将key-value存入选定数据库的最外层hash结构；
+
+   ```C
+   robj *o = lookupKeyWrite(c->db,key);
+   o = createHashObject();	//value对象指针
+   dbAdd(c->db,key,o);
+   ```
+
+   初始创建的 Hash value 对象也是 ziplist 数据结构。
+
+   ```C
+   unsigned char *zl = ziplistNew();//value对象的内部数据结构（*ptr）
+   robj *o = createObject(OBJ_HASH, zl);
+   o->encoding = OBJ_ENCODING_ZIPLIST;
+   ```
+
+   > ZIPLIST 数据结构决定了其索引效率很低，为何还能做Hash类型的内部数据结构？主要是源码限制了数据量很少的前提下才能用 ZIPLIST，后面有3个限制，任何一个条件不满足都会转成 HT 类型。
+   >
+   > 1）key value 单个参数字符串长度大于hash_max_ziplist_value (默认64bytes)
+   >
+   > 2）ZIPLIST 中 entry 数量超过 hash_max_ziplist_entries （默认512）
+   >
+   > 3）加上本次新增key value 存储总长超过1<<30字节，即1GB （有前两个条件限制这个其实根本无法出现）
+   >
+   > 搜索 hashTypeConvert(o, OBJ_ENCODING_HT) 这个方法都在哪里调用的，就能找到这三个限制条件。
+
+2. 如果传入的key value参数，单个参数字符串长度大于64，或ziplist无法安全的新增数据（加上本次新增key value总长超过1<<30字节，即1GB， ？为何是1GB ？），将把 value 对象（redisObject指针）转成 **OBJ_ENCODING_HT** 类型；
+
+   ```C
+   void hashTypeConvertZiplist(robj *o, int enc) {
+       serverAssert(o->encoding == OBJ_ENCODING_ZIPLIST);
+   
+       if (enc == OBJ_ENCODING_ZIPLIST) {
+           /* Nothing to do... */
+   
+       } else if (enc == OBJ_ENCODING_HT) {
+           hashTypeIterator *hi;
+           dict *dict;
+           int ret;
+   
+           hi = hashTypeInitIterator(o);
+           dict = dictCreate(&hashDictType, NULL);	//为
+   
+           while (hashTypeNext(hi) != C_ERR) {
+               sds key, value;
+   
+               key = hashTypeCurrentObjectNewSds(hi,OBJ_HASH_KEY);
+               value = hashTypeCurrentObjectNewSds(hi,OBJ_HASH_VALUE);
+               ret = dictAdd(dict, key, value);
+               if (ret != DICT_OK) {
+                   serverLogHexDump(LL_WARNING,"ziplist with dup elements dump",
+                       o->ptr,ziplistBlobLen(o->ptr));
+                   serverPanic("Ziplist corruption detected");
+               }
+           }
+           hashTypeReleaseIterator(hi);
+           zfree(o->ptr);
+           o->encoding = OBJ_ENCODING_HT;
+           o->ptr = dict;	//即内部数据结构也是 struct dict
+       } else {
+           serverPanic("Unknown hash encoding");
+       }
+   }
+   ```
+
+3. 将 value参数数据存入Hash value 对象。
+
+   ```C
+   int hashTypeSet(robj *o, sds field, sds value, int flags)
+   ```
+
+   
 
 ## Set
+
+以`sadd`命令为例，命令处理函数：
+
+```C
+saddCommand(client *c)
+```
+
+源码处理流程：
+
+外层数据结构处理还是一样，然后看内部数据结构：
+
+```C
+//value 数据结构创建
+robj *setTypeCreate(sds value) {
+    if (isSdsRepresentableAsLongLong(value,NULL) == C_OK)	//如果可以用整型表示
+        return createIntsetObject();						//就用IntSet数据结构
+    return createSetObject();	//否则用Set数据结构
+}
+//INTSET 数据结构, 就是个 signed char 数组
+typedef struct intset {
+    uint32_t encoding;	//有3种，
+    					//#define INTSET_ENC_INT16 (sizeof(int16_t)) 两个contents节点表示一个元素
+                        //#define INTSET_ENC_INT32 (sizeof(int32_t)) 四个
+                        //#define INTSET_ENC_INT64 (sizeof(int64_t)) 八个
+    uint32_t length;	//元素个数
+    int8_t contents[];
+} intset;
+//Set数据结构, 就是 struct dict, 就是 OBJ_ENCODING_HT
+dict *dictCreate(dictType *type,
+        void *privDataPtr)
+{
+    dict *d = zmalloc(sizeof(*d));
+    _dictInit(d,type,privDataPtr);
+    return d;
+}
+```
+
+当 INTSET entry数量 > set_max_intset_entries (默认512, 最大1<<30) ，或者当前正在使用 INTSET 数据结构但是新增的数据不能用整数表示都会转成 HT 数据结构。
+
+```
+size_t max_entries = server.set_max_intset_entries;
+/* limit to 1G entries due to intset internals. */
+if (max_entries >= 1<<30) max_entries = 1<<30;
+if (intsetLen(subject->ptr) > max_entries)
+	setTypeConvert(subject,OBJ_ENCODING_HT);
+```
 
 
 
 ## ZSet
+
+以`zadd`命令为例，命令处理函数：
+
+```C
+zaddCommand(client *c)
+```
+
+源码处理流程：
+
+外层数据结构处理还是一样，然后看内部数据结构：
 
 
 
