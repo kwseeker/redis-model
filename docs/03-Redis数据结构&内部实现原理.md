@@ -193,34 +193,114 @@ prerawlen: 前一entry占用的数据长度（bytes，用于反向索引）；
 len: 当前 entry 占用的数据长度以及数据类型。
 
 > 数据存储紧凑，能转成整数的字符串会转成适当长度的整数存储。
+>
+> len编码格式：
+>
+> #define ZIP_STR_06B (0 << 6)
+> #define ZIP_STR_14B (1 << 6)
+> #define ZIP_STR_32B (2 << 6)
+> #define ZIP_INT_16B (0xc0 | 0<<4)
+> #define ZIP_INT_32B (0xc0 | 1<<4)
+> #define ZIP_INT_64B (0xc0 | 2<<4)
+> #define ZIP_INT_24B (0xc0 | 3<<4)
+> #define ZIP_INT_8B 0xfe
+> 还有一种 ZIP_INT_IMM，这里没列出来，1111xxxx, 将编码类型和data保存在一个字节中，只能存储-1到12这13个数字。11110001-11111101 分别对应的 data 是 -1-12。
 
 #### HT
+
+和外层数据结构一样（struct dict）。
+
+#### INTSET
+
+![](picture/obj_encoding_intset.png)
+
+```C
+//INTSET 数据结构, 就是个 signed char 数组
+typedef struct intset {
+    uint32_t encoding;	//有3种，
+    					//#define INTSET_ENC_INT16 (sizeof(int16_t)) 两个contents节点表示一个元素
+                        //#define INTSET_ENC_INT32 (sizeof(int32_t)) 四个
+                        //#define INTSET_ENC_INT64 (sizeof(int64_t)) 八个
+    uint32_t length;	//元素个数
+    int8_t contents[];
+} intset;
+```
+
+#### SKIPLIST
+
+Redis中替代红黑树的一种实现。
+
+**跳表的特点**（个人总结）：
+
++ 跳表各节点先按分值再按value正序排序；
+
++ span值记录从当前节点当前层到达同层下一节点的跨度（span: 跨度）；
+
+  ```C
+  //span值看代码不好理解，但是把各节点ZSkipListLevel[]打印出来看就好多了
+  //DEMO:ZSkipListTest.java
+  null  | 0.000000 | bw: null  	|0:1:A	|1:1:A	|2:3:D	|3:3:D	|4:3:D
+  A     | 1.000000 | bw: null  	|0:1:B	|1:1:B
+  B     | 2.000000 | bw: A     	|0:1:D	|1:1:D
+  D     | 4.000000 | bw: B     	|0:1:E	|1:3:G	|2:3:G	|3:4:H
+  E     | 5.000000 | bw: D     	|0:1:F
+  F     | 6.000000 | bw: E     	|0:1:G
+  G     | 7.000000 | bw: F     	|0:1:H	|1:1:H	|2:1:H
+  H     | 8.000000 | bw: G     	|0:1:I
+  I(tail)| 9.000000 | bw: H  
+  ```
+
+ * header节点是一个独立的节点不保存数据和分数，只是记录每层按正序排列的第一个节点，以及到达该节点要跨越的节点数；
+ * tail节点指向最后一个元素，没有元素则tail指向 null。
+
+**原理示意图：**
+
+没找到画得好的图，然后自己重新画了一张。
+
+![](picture/obj_encoding_skiplist2.png)
+
+```C
+typedef struct zset {
+    dict *dict;		//一个hash表,存 value->score
+    zskiplist *zsl;	//一个跳表
+} zset;
+
+typedef struct zskiplist {
+    struct zskiplistNode *header, *tail;
+    unsigned long length;	//节点个数
+    int level;				//当前最高level值
+} zskiplist;
+
+typedef struct zskiplistNode {	//跳表的节点
+    sds ele;						//value的内容，sds类型
+    double score;					//value的分值
+    struct zskiplistNode *backward;	//一个后向指针
+    struct zskiplistLevel {			//多个前向指针
+        struct zskiplistNode *forward;
+        unsigned long span;
+    } level[];
+} zskiplistNode;
+```
 
 #### ZIPMAP
 
 #### LINKEDLIST
 
-#### INTSET
-
-#### SKIPLIST
-
 #### STREAM
-
-
 
 ### 数据类型与内部数据结构对应关系
 
-| 外部数据类型 | 内部存储结构               |
-| ------------ | -------------------------- |
-| String       | INT / EMBSTR / RAW         |
-| List         | QUICKLIST + ZIPLIST        |
-| Set          | INTSET / HT                |
-| ZSet         |                            |
-| Hash         | ZIPLIST / HT (struct dict) |
-| Bitmap       |                            |
-| GenHash      |                            |
-| HyperLogLog  |                            |
-| Stream       |                            |
+| 外部数据类型 | 内部存储结构                                                 |
+| ------------ | ------------------------------------------------------------ |
+| String       | **INT** / **EMBSTR** / **RAW**                               |
+| List         | **QUICKLIST + ZIPLIST**                                      |
+| Set          | **INTSET** / **HT** (struct dict, 这里存的是空值)            |
+| ZSet         | **ZIPLIST** (数量较少时) / **HT** (存储value->score) + **SKIPLIST** (支持用score查value)<br />即通过 HT 和 SKIPLIST 分别支持 value -> score 和 score -> value 的双向查找 |
+| Hash         | **ZIPLIST** (数量较少时) / **HT**                            |
+| Bitmap       |                                                              |
+| GenHash      |                                                              |
+| HyperLogLog  |                                                              |
+| Stream       |                                                              |
 
 
 
@@ -297,6 +377,8 @@ void rpushCommand(client *c)
 源码 rpush 处理流程:
 
 ![](picture/redis-list-process-rpush.png)
+
+
 
 ## Hash
 
@@ -433,7 +515,21 @@ if (intsetLen(subject->ptr) > max_entries)
 
 ## ZSet
 
-以`zadd`命令为例，命令处理函数：
+以`zadd`命令为例
+
+```shell
+ZADD key [NX | XX] [GT | LT] [CH] [INCR] score member [score member ...]
+XX: 仅仅更新存在的成员，不添加新成员。
+NX: 不更新存在的成员。只添加新成员。
+CH: (changed)修改返回值为发生变化的成员总数，原始是返回新添加成员的总数 (CH 是 changed 的意思)。
+更改的元素是新添加的成员，已经存在的成员更新分数。 所以在命令中指定的成员有相同的分数将不被计算在内。
+注：在通常情况下，ZADD返回值只计算新添加成员的数量。
+INCR: 当ZADD指定这个选项时，成员的操作就等同ZINCRBY命令，对成员的分数进行递增操作。
+GT: (great than) 只有当新分值大于旧分值时才更新，key不存在则直接添加。
+LT: (little than)只有当新分值小于旧分值时才更新，key不存在则直接添加。
+```
+
+命令处理函数：
 
 ```C
 zaddCommand(client *c)
@@ -441,17 +537,148 @@ zaddCommand(client *c)
 
 源码处理流程：
 
-外层数据结构处理还是一样，然后看内部数据结构：
+
+
+当配置参数 **zset_max_ziplist_entries = 0** 或 **zset_max_ziplist_value < value值的长度** 时，采用 struct zset 数据结构存储数据，另外插入值时也可能将 ziplist 转成 zset，即 **ziplist entry 个数大于 zset_max_ziplist_entries** 或 **单个value长度 大于 zset_max_ziplist_value** 或 **加上新的value,ziplist总长度超过 1<<30 bytes即1GB** ：
+
+```C
+//ziplist entry 个数大于 zset_max_ziplist_entries，
+//或 单个value长度 大于 zset_max_ziplist_value，
+//或 加上新的value,ziplist总长度超过 1<<30 bytes即1GB
+if (zzlLength(zobj->ptr)+1 > server.zset_max_ziplist_entries ||
+    sdslen(ele) > server.zset_max_ziplist_value ||
+    !ziplistSafeToAdd(zobj->ptr, sdslen(ele)))
+{
+    zsetConvert(zobj,OBJ_ENCODING_SKIPLIST);
+}
+//注意当删除元素后上面三个条件都满足还会将 zset 转成 ziplist
+```
+
+zset数据结构（其实就是个多叉树）：
+
+```C
+typedef struct zset {
+    dict *dict;		//一个hash表
+    zskiplist *zsl;	//一个跳表
+} zset;
+
+typedef struct zskiplist {
+    struct zskiplistNode *header, *tail;
+    unsigned long length;
+    int level;
+} zskiplist;
+
+typedef struct zskiplistNode {	//跳表的节点
+    sds ele;						//value的内容，sds类型
+    double score;					//value的分值
+    struct zskiplistNode *backward;	//一个后向指针
+    struct zskiplistLevel {			//多个前向指针
+        struct zskiplistNode *forward;
+        unsigned long span;
+    } level[];
+} zskiplistNode;
+```
+
+数据结构类型转换：
+
+比如新建一个zset key `zadd azset NX CH 1 A`，则 value redisObject 的 ptr 指针指向一个 ziplist; 
+
+其内部存储数据为(value和score分别作为一个entry存储，下图v为 value entry（'A'），s为 score entry(1) )
+
+| zlbytes(4) | zltail(4) | zllen（2） | v-prerawlen | v-len    | v-content | s-prerawlen | s-(len+data) | zlend(1) |
+| ---------- | --------- | ---------- | ----------- | -------- | --------- | ----------- | ------------ | -------- |
+| 16         | 13        | 2          | 0           | 00000001 | 'A'       | 3           | 11110010B    | 255      |
+
+> (unsigned char *)(zl+10) v-prerawlen指针
+>
+> (unsigned char *)(zl+11) v-len指针
+>
+> (unsigned char *)(zl+12) v-content指针
+>
+> (unsigned char *)(zl+13) s-prerawlen指针
+>
+> 关于 score 在 ziplist 中的存储方法，参考 t_zset.c `unsigned char *zzlInsert(unsigned char *zl, sds ele, double score)` 函数; 由于这里 score=1, 在[1,13]之间，采用 ZIP_INT_IMM 编码格式。
+
+```C
+//ZSET 内部存储数据结构 ZIPLIST 与 SKIPLIST 的相互转换
+void zsetConvert(robj *zobj, int encoding) {
+    zset *zs;
+    zskiplistNode *node, *next;
+    sds ele;
+    double score;
+
+    if (zobj->encoding == encoding) return;
+    if (zobj->encoding == OBJ_ENCODING_ZIPLIST) {	//SKIPLIST -> ZIPLIST
+        unsigned char *zl = zobj->ptr;
+        unsigned char *eptr, *sptr;
+        unsigned char *vstr;
+        unsigned int vlen;
+        long long vlong;
+
+        if (encoding != OBJ_ENCODING_SKIPLIST)
+            serverPanic("Unknown target encoding");
+		
+        //分配SKIPLIST内部空间
+        zs = zmalloc(sizeof(*zs));
+        zs->dict = dictCreate(&zsetDictType,NULL);	//用于存储 value 的 score, value->score
+        zs->zsl = zslCreate();
+
+        //找到ZIPLIST中第一个entry的指针（第一个value） (unsigned char *)(zl+10)
+        eptr = ziplistIndex(zl,0);
+        serverAssertWithInfo(NULL,zobj,eptr != NULL);
+        //第一个value的score指针，是紧挨着value entry 的下一个entry
+        sptr = ziplistNext(zl,eptr);
+        serverAssertWithInfo(NULL,zobj,sptr != NULL);
+
+        //递归遍历所有 ZIPLIST entry
+        while (eptr != NULL) {
+            score = zzlGetScore(sptr);
+            serverAssertWithInfo(NULL,zobj,ziplistGet(eptr,&vstr,&vlen,&vlong));
+            if (vstr == NULL)
+                ele = sdsfromlonglong(vlong);
+            else
+                ele = sdsnewlen((char*)vstr,vlen);
+			//插入跳表
+            node = zslInsert(zs->zsl,score,ele);
+            serverAssert(dictAdd(zs->dict,ele,&node->score) == DICT_OK);
+            zzlNext(zl,&eptr,&sptr);
+        }
+
+        zfree(zobj->ptr);
+        zobj->ptr = zs;
+        zobj->encoding = OBJ_ENCODING_SKIPLIST;
+    } else if (zobj->encoding == OBJ_ENCODING_SKIPLIST) {	//ZIPLIST -> SKIPLIST
+        unsigned char *zl = ziplistNew();
+
+        if (encoding != OBJ_ENCODING_ZIPLIST)
+            serverPanic("Unknown target encoding");
+
+        /* Approach similar to zslFree(), since we want to free the skiplist at
+         * the same time as creating the ziplist. */
+        zs = zobj->ptr;
+        dictRelease(zs->dict);
+        node = zs->zsl->header->level[0].forward;
+        zfree(zs->zsl->header);
+        zfree(zs->zsl);
+
+        while (node) {
+            zl = zzlInsertAt(zl,NULL,node->ele,node->score);
+            next = node->level[0].forward;
+            zslFreeNode(node);
+            node = next;
+        }
+
+        zfree(zs);
+        zobj->ptr = zl;
+        zobj->encoding = OBJ_ENCODING_ZIPLIST;
+    } else {
+        serverPanic("Unknown sorted set encoding");
+    }
+}
+```
 
 
 
 ## Bitmap
-
-
-
-
-
-
-
 
 
