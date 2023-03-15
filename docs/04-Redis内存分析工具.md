@@ -147,3 +147,16 @@ optional arguments:
 
 据说没RDR快，但是看使用上比RDR功能更丰富更灵活，比如可以统计以某个前缀开头的所有key的信息。
 
+
+
+## [RedisInsight](https://docs.redis.com/latest/ri/)
+
+它不仅仅可以作为桌面UI应用使用，还可以以Web服务的方式启动，在网页中监控Redis节点以及修改数据。
+
++ [Install RedisInsight on Docker ](https://docs.redis.com/latest/ri/installing/install-docker/)
+
+  ```shell
+  docker run -v redisinsight:/db -p 8001:8001 redislabs/redisinsight:latest
+  ```
+
++ [Install RedisInsight on Kubernetes](https://docs.redis.com/latest/ri/installing/install-k8s/)

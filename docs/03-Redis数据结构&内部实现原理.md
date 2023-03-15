@@ -681,4 +681,4 @@ void zsetConvert(robj *zobj, int encoding) {
 
 ## Bitmap
 
-
+通过`type`可以看到它其实还是String类型。将String当作Bit数组操作。
