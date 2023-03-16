@@ -16,6 +16,7 @@
     <module>redis-spring</module>
     <module>redis-bloomfilter</module>
     <module>performance-optimization</module>
+    <module>cache-refresher</module>
   </modules>
 
   <name>redis-model</name>
