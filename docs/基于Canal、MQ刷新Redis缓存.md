@@ -121,52 +121,21 @@ RocketMQ 生产消费测试：RocketMQProducerTest
 
 ## 配置Canal将binlog投递到RocketMQ
 
-修改 `/usr/local/canal/conf/canal.properties`
+修改Canal安装目录下的 `/conf/canal.properties`, 然后重启。
 
-```
-canal.serverMode = RocketMQ
+```properties
+canal.serverMode = rocketMQ
+# 
 canal.destinations = example
 # 配置mq的group地址、group、topic及tag
-rocketmq.producer.group =GID_refresher
-rocketmq.customized.trace.topic =refresher
-rocketmq.namespace =MQ_INST_10142odK
+rocketmq.producer.group =GID_P_REFRESHER
+#rocketmq.customized.trace.topic=refresher
+#rocketmq.namespace=MQ_INST_10142odK
 rocketmq.namesrv.addr=127.0.0.1:9876
-rocketmq.tag = refresher
+rocketmq.tag=refresher
 ```
 
-
-
 参考：[mq相关参数说明 (>=1.1.5版本)](https://github.com/alibaba/canal/wiki/Canal-Kafka-RocketMQ-QuickStart#mq%E7%9B%B8%E5%85%B3%E5%8F%82%E6%95%B0%E8%AF%B4%E6%98%8E-115%E7%89%88%E6%9C%AC)
-
-| 参数名                                | 参数说明                                                     | 默认值         |
-| ------------------------------------- | ------------------------------------------------------------ | -------------- |
-| canal.aliyun.accessKey                | 阿里云ak                                                     | 无             |
-| canal.aliyun.secretKey                | 阿里云sk                                                     | 无             |
-| canal.aliyun.uid                      | 阿里云uid                                                    | 无             |
-| canal.mq.flatMessage                  | 是否为json格式 如果设置为false,对应MQ收到的消息为protobuf格式 需要通过CanalMessageDeserializer进行解码 | false          |
-| canal.mq.canalBatchSize               | 获取canal数据的批次大小                                      | 50             |
-| canal.mq.canalGetTimeout              | 获取canal数据的超时时间                                      | 100            |
-| canal.mq.accessChannel = local        | 是否为阿里云模式，可选值local/cloud                          | local          |
-| canal.mq.database.hash                | 是否开启database混淆hash，确保不同库的数据可以均匀分散，如果关闭可以确保只按照业务字段做MQ分区计算 | true           |
-| canal.mq.send.thread.size             | MQ消息发送并行度                                             | 30             |
-| canal.mq.build.thread.size            | MQ消息构建并行度                                             | 8              |
-| ------                                | -----------                                                  | -------        |
-| rocketmq.producer.group               | rocketMQ为ProducerGroup名                                    | test           |
-| rocketmq.enable.message.trace         | 是否开启message trace                                        | false          |
-| rocketmq.customized.trace.topic       | message trace的topic                                         | 无             |
-| rocketmq.namespace                    | rocketmq的namespace                                          | 无             |
-| rocketmq.namesrv.addr                 | rocketmq的namesrv地址                                        | 127.0.0.1:9876 |
-| rocketmq.retry.times.when.send.failed | 重试次数                                                     | 0              |
-| rocketmq.vip.channel.enabled          | rocketmq是否开启vip channel                                  | false          |
-| rocketmq.tag                          | rocketmq的tag配置                                            | 空值           |
-| ---                                   | ---                                                          | ---            |
-| canal.mq.topic                        | mq里的topic名                                                | 无             |
-| canal.mq.dynamicTopic                 | mq里的动态topic规则, 1.1.3版本支持                           | 无             |
-| canal.mq.partition                    | 单队列模式的分区下标，                                       | 1              |
-| canal.mq.enableDynamicQueuePartition  | 动态获取MQ服务端的分区数,如果设置为true之后会自动根据topic获取分区数替换canal.mq.partitionsNum的定义,目前主要适用于RocketMQ | false          |
-| canal.mq.partitionsNum                | 散列模式的分区数                                             | 无             |
-| canal.mq.dynamicTopicPartitionNum     | mq里的动态队列分区数,比如针对不同topic配置不同partitionsNum  | 无             |
-| canal.mq.partitionHash                | 散列规则定义 库名.表名 : 唯一主键，比如mytest.person: id 1.1.3版本支持新语法，见下文 | 无             |
 
 ## binlog日志消费＆刷新缓存
 
