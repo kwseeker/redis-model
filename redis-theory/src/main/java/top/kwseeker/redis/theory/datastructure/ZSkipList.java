@@ -3,30 +3,29 @@ package top.kwseeker.redis.theory.datastructure;
 /**
  * 参考Redis源码，用Java重新实现的跳表
  * 暂不支持泛型，value String
- *
+ * <p>
  * header节点不保存数据和分数，只是记录每层按正序排列的第一个节点
  * 最底层包含所有数据节点（按正序排列，span值记录当前节点在该层是第几个节点），
  */
 public class ZSkipList {
-
+    //跳表最大层数
     private static final int ZSKIPLIST_MAXLEVEL = 32;
     //private static final float ZSKIPLIST_P = 0.25F;
     private static final float ZSKIPLIST_P = 0.5F;
 
+    //头节点
     private ZSkipListNode header;
+    //尾节点
     private ZSkipListNode tail;
-    /**
-     * 节点个数
-     */
+    //节点个数
     private long length;
-    /**
-     * 当前level
-     */
+    //记录元素节点层数的最大值
     private int level;
 
     public ZSkipList() {
         this.level = 1;
         this.length = 0;
+        //头节点初始化，32个forward指针，初始指向全部为nulL
         this.header = new ZSkipListNode(ZSKIPLIST_MAXLEVEL, null, 0);
         for (int i = 0; i < ZSKIPLIST_MAXLEVEL; i++) {
             this.header.levels[i].forward = null;
@@ -41,12 +40,12 @@ public class ZSkipList {
      * ZADD key [NX | XX] [GT | LT] [CH] [INCR] score member [score member ...]
      */
     ZSkipListNode insert(double score, String ele) {
-        //???
+        //rank 记录新元素节点在每一层的前面节点到header节点的跨度
         int[] rank = new int[ZSKIPLIST_MAXLEVEL];
-        //新节点插入位置
+        //新元素节点插入后需要更新forward指针的节点
         ZSkipListNode[] update = new ZSkipListNode[ZSKIPLIST_MAXLEVEL];
 
-        //1 先定位到插入新节点的位置
+        //1 先定位到插入新节点的位置，定位过程查的一些数据（rank、update）记录下来后面要用
         ZSkipListNode node = header;
         for (int i = level - 1; i >= 0; i--) {
             rank[i] = i == (level - 1) ? 0 : rank[i + 1];
@@ -57,7 +56,7 @@ public class ZSkipList {
                 rank[i] += node.levels[i].span;
                 node = node.levels[i].forward;
             }
-            update[i] = node;
+            update[i] = node;   //新节点需要插入到 update[0] 指向节点的后面
         }
 
         //2 生成level
@@ -74,7 +73,7 @@ public class ZSkipList {
 
         //3 新建节点并插入
         node = new ZSkipListNode(nodeLevel, ele, score);
-        for (int i = 0; i < nodeLevel; i++) {
+        for (int i = 0; i < nodeLevel; i++) {   //更新每一层的forward链表和span值
             node.levels[i].forward = update[i].levels[i].forward;
             update[i].levels[i].forward = node;
 
@@ -87,7 +86,7 @@ public class ZSkipList {
             update[i].levels[i].span++;
         }
 
-        //4 更新最底层链表，tail指向最后一个数据节点
+        //4 更新backward链表，tail指向最后一个数据节点
         node.backward = update[0] == header ? null : update[0];
         if (node.levels[0].forward != null) {
             node.levels[0].forward.backward = node;
